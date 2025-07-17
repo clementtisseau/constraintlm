@@ -2,9 +2,8 @@ from abc import ABC, abstractmethod
 
 class SequenceSampler(ABC):
 
-    def __init__(self, model, constraint = None):
+    def __init__(self, model):
         self.model = model
-        self.constraint = constraint
 
     @abstractmethod
     def sample(self, max_length):

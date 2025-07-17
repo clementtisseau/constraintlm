@@ -3,7 +3,9 @@ from .base import SequenceSampler
 import torch
 import math
 from dataclasses import dataclass
-from ...constraints.base import Constraint
+# from ...constraints.base import Constraint
+
+from ...processors.structured import CLMLogitsProcessor
 
 @dataclass
 class State:
@@ -17,9 +19,9 @@ class State:
 
 class SMCSampler(SequenceSampler):
 
-    def __init__(self, model, *constraints: Constraint, critic = None):      # the constraint is not optional, SMC works only w/ constraints. critic is optional though.
+    def __init__(self, model, logits_processor: CLMLogitsProcessor, critic = None):      # the logits_processor is not optional. critic is optional though.
         super().__init__(model)
-        self.constraints = list(constraints)
+        self.logits_processor = logits_processor
         self.critic = critic
 
 
@@ -125,16 +127,15 @@ class SMCSampler(SequenceSampler):
             past_key_values = past_key_values
             )
         attention_mask = torch.cat([attention_mask, torch.ones((flat_B_shape*P, 1), dtype=attention_mask.dtype, device=device)], dim=-1)
-        scored_probs = torch.softmax(logits, dim=-1)
+        
+        if t==0:
+            scored_logits = self.logits_processor.process_logits(torch.empty((flat_B_shape*P, 0), dtype=torch.long), logits)
+        else: 
+            scored_logits = self.logits_processor.process_logits(flat_gen_ids[:,:t], logits)
+        
+        normalizing_cst = torch.exp(scored_logits).sum(-1) / torch.exp(logits).sum(-1)
+        scored_probs = torch.softmax(scored_logits, dim=-1)
 
-        # ------------------ UNDESIRED BEHAVIOR -------------------
-        for constraint in self.constraints:         # I have a huge problem here, if there is many constraints, normalizing_cst should include all the masking/scoring steps (not the last one only)
-            #print(constraint)
-            if t==0:
-                scored_probs, normalizing_cst = constraint.apply(None, scored_probs)  # (B*P, V), (B*P)
-            else:
-                scored_probs, normalizing_cst = constraint.apply(flat_gen_ids[:,:t], scored_probs)  # (B*P, V), (B*P)
-            
         #assert torch.all(scored_probs.sum(-1) == 1), "Probabilities doesn't sum to 1."
         assert not torch.any(scored_probs.sum(-1) == 0), "Probabilities sum to 0."
         assert torch.all(scored_probs.sum(-1) > 0), "Probabilities <= 0."
