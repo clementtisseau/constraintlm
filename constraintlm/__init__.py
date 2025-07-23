@@ -10,7 +10,6 @@ from .processors.structured import CLMLogitsProcessor
 from .processors.structured import RPNLogitsProcessor
 from .processors.structured import CLMCFGLogitsProcessor
 
-
 from .sampling.token_sampling.tokensampler import TokenSampler
 from .sampling.sequence_sampling.multinomial import MultinomialSeqSampler
 from .sampling.sequence_sampling.smc import SMCSampler
