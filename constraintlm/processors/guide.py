@@ -34,16 +34,20 @@ PY_KEYWORDS = {
     "while","with","yield"
 }
 
-class KeywordLocker(PostLex):
-    # keep every keyword visible to the parser
-    always_accept = tuple(k.upper() for k in PY_KEYWORDS)
+class KeywordIndenter(PythonIndenter):
 
-    # re‑tag NAME → KEYWORD when needed
+    _keyword_tokens = tuple(k.upper() for k in PY_KEYWORDS)
+
+    # override the *property*
+    @property
+    def always_accept(self):
+        return super().always_accept + self._keyword_tokens
+
     def process(self, stream):
-        for t in stream:
-            if t.type == "NAME" and t.value in PY_KEYWORDS:
-                t.type = t.value.upper()       # e.g. while → WHILE
-            yield t
+        for tok in super().process(stream):
+            if tok.type == "NAME" and tok.value in PY_KEYWORDS:
+                tok.type = tok.value.upper()
+            yield tok
 
 class CLMCFGGuide(Guide):
     """Guide to generate text that is in the language of a context-free Lark
