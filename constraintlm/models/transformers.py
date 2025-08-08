@@ -7,8 +7,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class TransformersLM(BaseLM):
 
-    def __init__(self, model_hf_name):
-        self.model = AutoModelForCausalLM.from_pretrained(model_hf_name, torch_dtype="auto", device_map="auto")
+    def __init__(self, model_hf_name, device_map="auto"):
+        self.model = AutoModelForCausalLM.from_pretrained(model_hf_name, torch_dtype="auto", device_map)
         self.tokenizer = AutoTokenizer.from_pretrained(model_hf_name)
 
         self.vocab_token_size = self.tokenizer.vocab_size     # All tokens IDs including added tokens (w/o special tokens)

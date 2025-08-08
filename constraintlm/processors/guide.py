@@ -3,8 +3,10 @@ import copy
 import warnings
 from typing import TYPE_CHECKING, Any, Generator, ValuesView, Union
 
-from lark.indenter import DedentError, PostLex
-from lark.lexer import UnexpectedCharacters, UnexpectedToken
+from itertools import tee
+
+from lark.indenter import DedentError, PythonIndenter
+from lark.lexer import UnexpectedCharacters, UnexpectedToken, Token
 from outlines_core.fsm.guide import Generate
 from outlines_core.fsm.guide import Write
 from outlines_core.fsm.guide import (
@@ -43,11 +45,48 @@ class KeywordIndenter(PythonIndenter):
     def always_accept(self):
         return super().always_accept + self._keyword_tokens
 
+    # def process(self, stream):
+    #     for tok in super().process(stream):
+    #         if tok.type == "NAME" and tok.value in PY_KEYWORDS:
+    #             tok.type = tok.value.upper()
+    #         if self.paren_level < 0:
+    #             print("it is actually <0", self.paren_level, repr(tok))
+    #         yield tok
+
     def process(self, stream):
-        for tok in super().process(stream):
-            if tok.type == "NAME" and tok.value in PY_KEYWORDS:
-                tok.type = tok.value.upper()
-            yield tok
+        stream_copy, stream_for_consume = tee(stream, 2)        
+        # self.paren_level = 0
+        # self.indent_level = [0]
+        stream_paren_level = self.paren_level
+        stream_indent_level = self.indent_level
+
+        token = None
+        for token in stream_for_consume:
+            if token.type == "NAME" and token.value in PY_KEYWORDS:
+                token.type = token.value.upper()
+            if token.type == self.NL_type:
+                yield from self.handle_NL(token)
+            else:
+                yield token
+
+            if token.type in self.OPEN_PAREN_types:
+                stream_paren_level += 1
+            elif token.type in self.CLOSE_PAREN_types:
+                stream_paren_level -= 1
+                if stream_paren_level < 0:
+                    print("it is actually <0", stream_paren_level, repr(token), list(stream_copy))
+                assert stream_paren_level >= 0
+
+        # ----- force-flush remaining DEDENTs -----------------------
+        while len(self.indent_level) > 1:
+            self.indent_level.pop()
+            yield (
+                Token.new_borrow_pos(self.DEDENT_type, '', token)
+                if token
+                else Token(self.DEDENT_type, '', 0, 0, 0, 0, 0, 0)
+            )
+
+        assert self.indent_level == [0], self.indent_level
 
 class CLMCFGGuide(Guide):
     """Guide to generate text that is in the language of a context-free Lark
@@ -74,11 +113,12 @@ class CLMCFGGuide(Guide):
         self.cfg_string = cfg_string
         self.tokenizer = tokenizer
         self.eos_token_id = self.tokenizer.eos_token_id
+        self.indenter = KeywordIndenter()
         self.parser = PartialLark(
             cfg_string,
             parser="lalr",
             lexer="contextual",
-            postlex = KeywordLocker(),
+            postlex = self.indenter,
             import_paths=[grammars.GRAMMAR_PATH],
         )
         self.initial_state = CFGState(
@@ -159,6 +199,10 @@ class CLMCFGGuide(Guide):
                     DedentError,
                 ):
                     pass
+                except(AssertionError):
+                    print(token_id.item(), self.tokenizer.decode([token_id]), self.indenter.paren_level)
+            if self.indenter.paren_level < 0:
+                print("~~~~~~~~~~~~~~~~", self.indenter.paren_level)
 
     def get_next_state(self, state: CFGState, token_id: int) -> CFGState:
         """Update the state of the guide.

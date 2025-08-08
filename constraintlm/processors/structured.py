@@ -24,12 +24,11 @@ class RPNLogitsProcessor(CLMLogitsProcessor):
 
 class CLMCFGLogitsProcessor(GuideLogitsProcessor):        # this is not parallelized at all, could we improve this?  
 
-    def __init__(self, cfg_str: str, tokenizer, llm, tensor_library_name):
-        self.llm = llm
-        cfg_guide = CLMCFGGuide(cfg_string=cfg_str, tokenizer=tokenizer)
+    def __init__(self, cfg_str: str, tokenizer, tensor_library_name):
+        self.cfg_guide = CLMCFGGuide(cfg_string=cfg_str, tokenizer=tokenizer)
         super().__init__(
             tokenizer=tokenizer,
-            guide=cfg_guide,
+            guide=self.cfg_guide,
             tensor_library_name=tensor_library_name,
         )
 

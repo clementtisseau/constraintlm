@@ -9,6 +9,7 @@ from .constraints.automata.finite_state_machine import FiniteStateMachine
 from .processors.structured import CLMLogitsProcessor
 from .processors.structured import RPNLogitsProcessor
 from .processors.structured import CLMCFGLogitsProcessor
+from .processors.guide import KeywordIndenter
 
 from .sampling.token_sampling.tokensampler import TokenSampler
 from .sampling.sequence_sampling.multinomial import MultinomialSeqSampler
