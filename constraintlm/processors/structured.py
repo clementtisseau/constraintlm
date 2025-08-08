@@ -79,3 +79,8 @@ class CLMCFGLogitsProcessor(GuideLogitsProcessor):        # this is not parallel
             mask[i, valid_ids] = logits[i, valid_ids]
 
         return mask
+
+        def restart(self):
+            self._seq_start_idx = None
+            self.cfg_guide.initial_state = CFGState(parser_state=self.parser.parse(""), prev_token=None)
+            self.cfg_guide.indenter.paren_level = 0
