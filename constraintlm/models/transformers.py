@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class TransformersLM(BaseLM):
 
-    def __init__(self, model_hf_name):
+    def __init__(self, model_hf_name, device_map="auto"):
         self.model = AutoModelForCausalLM.from_pretrained(model_hf_name, torch_dtype="auto", device_map="auto")
         self.tokenizer = AutoTokenizer.from_pretrained(model_hf_name)
         self.tokenizer.padding_side = "left"
