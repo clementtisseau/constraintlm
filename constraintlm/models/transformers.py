@@ -10,6 +10,7 @@ class TransformersLM(BaseLM):
     def __init__(self, model_hf_name):
         self.model = AutoModelForCausalLM.from_pretrained(model_hf_name, torch_dtype="auto", device_map="auto")
         self.tokenizer = AutoTokenizer.from_pretrained(model_hf_name)
+        self.tokenizer.padding_side = "left"
 
         self.vocab_token_size = self.tokenizer.vocab_size     # All tokens IDs including added tokens (w/o special tokens)
         self.vocab_size = len(self.tokenizer)           # All tokens IDs including added tokens (and special tokens)
@@ -33,7 +34,6 @@ class TransformersLM(BaseLM):
         
 
         # Should I allow the input to be a dict as in model() of transformers, w/ attention_mask and past_key_values optional ? I want to do this iff having only input_ids tensor as input still works
-        real_len = 0
 
         self.model.eval()
         with torch.no_grad():
@@ -50,7 +50,7 @@ class TransformersLM(BaseLM):
             logits = outputs.logits
 
             # slice off only the last-token logits 
-            next_token_logits = logits[..., real_len-1, :]    # shape: (*batch_size, vocab_size)
+            next_token_logits = logits[..., -1, :]    # shape: (*batch_size, vocab_size)
 
             # grab cache for next call (or None if model didn’t return it)
             new_past = getattr(outputs, "past_key_values", None)

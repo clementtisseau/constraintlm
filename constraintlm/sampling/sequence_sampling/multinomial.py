@@ -8,7 +8,7 @@ class MultinomialSeqSampler(SequenceSampler):
         super().__init__(model)
         self.logits_processor = logits_processor
     
-    def sample(self, prompt_ids, max_length, temperature=1.0, top_k=None, top_p=None):
+    def sample(self, prompt_ids, max_length, attention_mask=None, temperature=1.0, top_k=None, top_p=None):
 
         L     = prompt_ids.size(-1)             # seq_length
         B_shape = list(prompt_ids.shape[:-1])   # (*batch_shape)
@@ -22,8 +22,13 @@ class MultinomialSeqSampler(SequenceSampler):
         flat_finished = torch.zeros(flat_B_shape,    dtype=torch.bool, device=device)       # (B)
         
         # --- t=0 ---
-        attn_mask = (flat_prompt_ids != self.model.pad_token_id).long()      # (B, L) 
+        if attention_mask is None:
+            attn_mask = (flat_prompt_ids != self.model.pad_token_id).to(dtype=torch.long, device=device)
+        else:
+            attn_mask = attention_mask.reshape(flat_B_shape, L).to(dtype=torch.long, device=device)
+
         next_token_logits, past_key_values = self.model.logits(flat_prompt_ids, attn_mask)
+        print(next_token_logits.shape)
         attn_mask = torch.cat([attn_mask, torch.ones((flat_B_shape, 1))], dim = -1)
         if self.logits_processor is not None:
             next_token_logits = self.logits_processor.process_logits(torch.empty((flat_B_shape, 0), dtype=torch.long), next_token_logits)
@@ -37,7 +42,6 @@ class MultinomialSeqSampler(SequenceSampler):
         flat_gen_ids[:, 0] = new_ids.squeeze(-1)   # (B, 1)
 
         for t in range(1, max_length):
-            print(t)
             next_token_logits, past_key_values = self.model.logits(new_ids, attn_mask, past_key_values)
             attn_mask = torch.cat([attn_mask, torch.ones((flat_B_shape, 1))], dim = -1)
             if self.logits_processor is not None:
