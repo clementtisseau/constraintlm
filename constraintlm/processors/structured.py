@@ -7,14 +7,13 @@ from .guide import CLMCFGGuide
 
 
 class CLMLogitsProcessor(OutlinesLogitsProcessor):
-    def __init__(self, llm):
-        self.llm = llm
+    def __init__(self, tensor_library_name: str):
+        super().__init__(tensor_library_name=tensor_library_name)
 
 
 class RPNLogitsProcessor(CLMLogitsProcessor):
-
-    def __init__(self, llm):
-        super().__init(llm)
+    def __init__(self, tensor_library_name: str):
+        super().__init__(tensor_library_name=tensor_library_name)
 
     def process_logits(self, input_ids: torch.LongTensor, logits: torch.FloatTensor) -> torch.Tensor:
         pass
@@ -24,7 +23,7 @@ class RPNLogitsProcessor(CLMLogitsProcessor):
 
 class CLMCFGLogitsProcessor(GuideLogitsProcessor):        # this is not parallelized at all, could we improve this?  
 
-    def __init__(self, cfg_str: str, tokenizer, tensor_library_name):
+    def __init__(self, cfg_str: str, tokenizer, tensor_library_name: str):
         self.cfg_guide = CLMCFGGuide(cfg_string=cfg_str, tokenizer=tokenizer)
         super().__init__(
             tokenizer=tokenizer,

@@ -1,3 +1,6 @@
+# !!!!!!!!!!! I changed many things in multinomial.py since I used this for the last time. This should be adapted to the way multinomial.py is coded.
+
+
 from .base import SequenceSampler
 
 import torch

@@ -7,8 +7,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 class TransformersLM(BaseLM):
 
-    def __init__(self, model_hf_name, device_map="auto"):
-        self.model = AutoModelForCausalLM.from_pretrained(model_hf_name, torch_dtype="auto", device_map="auto")
+    def __init__(self, model_hf_name, torch_dtype="auto", device_map="auto", max_memory=None):
+        self.model = AutoModelForCausalLM.from_pretrained(model_hf_name, torch_dtype=torch_dtype, device_map=device_map, max_memory=max_memory)
         self.tokenizer = AutoTokenizer.from_pretrained(model_hf_name)
         self.tokenizer.padding_side = "left"
 
@@ -31,29 +31,19 @@ class TransformersLM(BaseLM):
         attention_mask: Optional[torch.LongTensor] = None,
         past_key_values: Optional[Tuple[Any, ...]] = None
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[Any, ...]]]:
-        
-
         # Should I allow the input to be a dict as in model() of transformers, w/ attention_mask and past_key_values optional ? I want to do this iff having only input_ids tensor as input still works
 
-        self.model.eval()
-        with torch.no_grad():
-            # build kwargs dynamically
-            model_inputs: Dict[str, Any] = {"input_ids": input_ids}
-            if attention_mask is not None:
-                model_inputs["attention_mask"] = attention_mask
-            if past_key_values is not None:
-                model_inputs["past_key_values"] = past_key_values
+        # build kwargs dynamically
+        model_inputs: Dict[str, Any] = {"input_ids": input_ids}
+        if attention_mask is not None:
+            model_inputs["attention_mask"] = attention_mask
+        if past_key_values is not None:
+            model_inputs["past_key_values"] = past_key_values
 
-            # forward pass with caching enabled
-            outputs = self.model(**model_inputs, use_cache=True)
-            # shape: (*batch_size, seq_len, vocab_size)
-            logits = outputs.logits
-
-            # slice off only the last-token logits 
-            next_token_logits = logits[..., -1, :]    # shape: (*batch_size, vocab_size)
-
-            # grab cache for next call (or None if model didn’t return it)
-            new_past = getattr(outputs, "past_key_values", None)
+        outputs = self.model(**model_inputs, use_cache=True)    # forward pass with caching enabled
+        logits = outputs.logits                                 # shape: (*batch_size, seq_len, vocab_size)
+        next_token_logits = logits[..., -1, :]    # shape: (*batch_size, vocab_size)
+        new_past = getattr(outputs, "past_key_values", None)    # grab cache for next call (or None if model didn’t return it)
 
         return next_token_logits, new_past  
 
