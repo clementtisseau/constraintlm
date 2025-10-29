@@ -24,6 +24,10 @@ class MultinomialSeqSampler(SequenceSampler):
             torch.Tensor: Generated token IDs with shape (*batch_shape, max_new_tokens).
         """
 
+        # We need to reset logits_processor before sampling a new sentence
+        self.logits_processor._seq_start_idx = None
+        self.logits_processor._guide_states = {hash(tuple()): self.logits_processor.guide.initial_state}        # reset the _guide_states dictionary
+
         # self.model is your provider wrapper; the actual nn.Module is self.model.model
         nn_module = getattr(self.model, "model", self.model)  # fallback if you pass nn.Module directly
         was_training = nn_module.training
@@ -31,6 +35,9 @@ class MultinomialSeqSampler(SequenceSampler):
 
         try:
             with torch.inference_mode():
+                pad_id = self.model.pad_token_id
+                eos_id = self.model.eos_token_id
+
                 *batch_shape, L = prompt_ids.shape
                 device = prompt_ids.device
 
@@ -52,54 +59,45 @@ class MultinomialSeqSampler(SequenceSampler):
 
                 flat_BN = flat_prompt_ids.size(0)  # (flat_B * N)
                 flat_gen_ids = torch.empty(flat_BN, max_new_tokens, dtype=torch.long, device=device)    # Future generated tokens
-                flat_finished = torch.zeros(flat_BN, dtype=torch.bool, device=device)                   # Keep track of the EOS-terminated particles (B)           
-                
-                # --- t=0 ---
+                flat_gen_ids = torch.full((flat_BN, max_new_tokens), pad_id, dtype=torch.long, device=device)
+                flat_finished = torch.zeros(flat_BN, dtype=torch.bool, device=device)                   # Keep track of the EOS-terminated particles (B)                           
                 if attention_mask is None:
-                    attn_mask = (flat_prompt_ids != self.model.pad_token_id).long().to(device)
+                    attn_mask = (flat_prompt_ids != pad_id).long().to(device)
                 else:
                     attn_mask = attention_mask.long().to(device)
 
-                next_token_logits, past_key_values = self.model.logits(flat_prompt_ids, attn_mask)
-                attn_mask = torch.cat([attn_mask, torch.ones((flat_BN, 1), device=device, dtype=torch.long)], dim = -1)
-                if self.logits_processor is not None:
-                    # / ! \
-                    # IMPORTANT: torch.empty((flat_BN, 0)) is a 2D tensor of shape [flat_BN, 0]
-                    # So it will set logits_processor._seq_start_idx = 0 and it will never change, which works fine
-                    # This is the only reason why the code below works. 
-                    # Otherise we would have to reset self.logits_processor._seq_start_idx = len(flat_prompt_ids[0]) before each call to process_logits
-                    # and call process_logits(flat_prompt_ids) and append the newly sampled to flat_prompt_ids instead of filling flat_gen_ids
-                    # / ! \
-                    # 
-                    # PROBELM: Here we don't need to reset logits_processor._seq_start_idx = 0 because for each generation, we begin with an empty prompt
-                    # However, shouldn't we do 
-                    # logits_processor._guide_states = {hash(tuple()): rpnfullsyntax_logits_processor.guide.initial_state}        # reset the _guide_states dictionary
-                    next_token_logits = self.logits_processor.process_logits(torch.empty((flat_BN, 0), dtype=torch.long, device=device), next_token_logits)
-                next_token_probs = torch.softmax(next_token_logits / max(temperature, 1e-8), dim=-1)
-                new_ids = self.model.sample(next_token_probs, temperature, top_k, top_p)
+                cur_input_ids = flat_prompt_ids
+                cur_attn_mask = attn_mask
+                past_key_values = None
 
-                # Keep track of EOS-terminated particles
-                just_ended = new_ids.squeeze(-1) == self.model.eos_token_id # (B)
-                flat_finished |= just_ended
-                # Update particles 
-                flat_gen_ids[:, 0] = new_ids.squeeze(-1)   # (B, 1)
+                for t in range(max_new_tokens):
+                    if torch.all(flat_finished):
+                        break
 
-                for t in range(1, max_new_tokens):
-                    next_token_logits, past_key_values = self.model.logits(new_ids, attn_mask, past_key_values)
-                    attn_mask = torch.cat([attn_mask, torch.ones((flat_BN, 1), device=device, dtype=torch.long)], dim = -1)
+                    if past_key_values is None:
+                        next_token_logits, past_key_values = self.model.logits(cur_input_ids, cur_attn_mask) 
+                    else:   # Feed just the last token sampled at the previous step
+                        last_token = cur_input_ids[:, -1:].to(device)
+                        next_token_logits, past_key_values = self.model.logits(last_token, cur_attn_mask, past_key_values) 
+    
                     if self.logits_processor is not None:
-                        next_token_logits = self.logits_processor.process_logits(flat_gen_ids[:,:t], next_token_logits)
+                        next_token_logits = self.logits_processor.process_logits(cur_input_ids, next_token_logits)
                     
                     next_token_probs = torch.softmax(next_token_logits / max(temperature, 1e-8), dim=-1)
-                    next_token_probs[flat_finished, :] = 0.0      
-                    next_token_probs[flat_finished, self.model.pad_token_id] = 1.0
+                    if flat_finished.any(): # only if at least one sentence is finished
+                        next_token_probs[flat_finished, :] = 0.0
+                        next_token_probs[flat_finished, pad_id] = 1.0
                     new_ids = self.model.sample(next_token_probs, temperature, top_k, top_p)
 
                     # Keep track of EOS-terminated particles
-                    just_ended = new_ids.squeeze(-1) == self.model.eos_token_id # (flat_B* P)   # self.model.eos_token_id is not defined
+                    just_ended = new_ids.squeeze(-1) == eos_id  # (flat_B* P)   
                     flat_finished |= just_ended                                  
                     # Update particles 
-                    flat_gen_ids[:, t] = new_ids.squeeze(-1)   # (flat_B, 1)
+                    flat_gen_ids[:, t] = new_ids.squeeze(-1)    # (flat_B, 1)
+
+                    # Update input_ids and attention_mask
+                    cur_input_ids = torch.cat([cur_input_ids, new_ids], dim=-1)
+                    cur_attn_mask = torch.cat([cur_attn_mask, torch.ones((flat_BN, 1), device=device, dtype=torch.long)], dim=-1)
 
                 if num_return_sequences == 1:
                     gen_ids = flat_gen_ids.view(*batch_shape, max_new_tokens)
