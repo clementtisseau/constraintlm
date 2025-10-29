@@ -63,6 +63,17 @@ class MultinomialSeqSampler(SequenceSampler):
                 next_token_logits, past_key_values = self.model.logits(flat_prompt_ids, attn_mask)
                 attn_mask = torch.cat([attn_mask, torch.ones((flat_BN, 1), device=device, dtype=torch.long)], dim = -1)
                 if self.logits_processor is not None:
+                    # / ! \
+                    # IMPORTANT: torch.empty((flat_BN, 0)) is a 2D tensor of shape [flat_BN, 0]
+                    # So it will set logits_processor._seq_start_idx = 0 and it will never change, which works fine
+                    # This is the only reason why the code below works. 
+                    # Otherise we would have to reset self.logits_processor._seq_start_idx = len(flat_prompt_ids[0]) before each call to process_logits
+                    # and call process_logits(flat_prompt_ids) and append the newly sampled to flat_prompt_ids instead of filling flat_gen_ids
+                    # / ! \
+                    # 
+                    # PROBELM: Here we don't need to reset logits_processor._seq_start_idx = 0 because for each generation, we begin with an empty prompt
+                    # However, shouldn't we do 
+                    # logits_processor._guide_states = {hash(tuple()): rpnfullsyntax_logits_processor.guide.initial_state}        # reset the _guide_states dictionary
                     next_token_logits = self.logits_processor.process_logits(torch.empty((flat_BN, 0), dtype=torch.long, device=device), next_token_logits)
                 next_token_probs = torch.softmax(next_token_logits / max(temperature, 1e-8), dim=-1)
                 new_ids = self.model.sample(next_token_probs, temperature, top_k, top_p)

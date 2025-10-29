@@ -7,7 +7,7 @@ from .constraints.fsm import FSMConstraint
 from .constraints.automata.finite_state_machine import FiniteStateMachine
 
 from .processors.structured import CLMLogitsProcessor
-from .processors.structured import RPNLogitsProcessor
+from .processors.structured import RPNFullSyntaxLogitsProcessor
 from .processors.structured import CLMCFGLogitsProcessor
 from .processors.guide import KeywordIndenter
 
